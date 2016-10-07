@@ -1,0 +1,13 @@
+
+Sender sends MESSAGE:CURRENT-SEQ, awaits ACK:CURRENT-SEQ
+	ACK:CURRENT-SEQ(server got message) - return
+	NACK:CURRENT-SEQ(server did not get message) - resend MESSAGE:CURRENT-SEQ
+	CORRUPT(server may or may not have gotten message) - resend MESSAGE:CURRENT-SEQ
+	MESSAGE:FUTURE-SEQ(server got message, sent an ACK we never got, then sent some response) - send NACK:FUTURE-SEQ (calling function isn't ready, server should resend), return
+	MESSAGE:OLD-SEQ (used to be a receiver, sender never got ACK) - resend MESSAGE:CURRENT-SEQ
+	NACK:FUTURE-SEQ (we got a corrupted ACK previously AND a corrupted MESSAGE:FUTURE-SEQ, AND our resend got corrupted. damn we suck.) -  Same state as 'MESSAGE:FUTURE-SEQ, send NACK:FUTURE-SEQ and return
+
+Receiver awaits MESSAGE:CURRENT-SEQ
+	MESSAGE:CURRENT-SEQ(sender sent message) - send ACK:CURRENT-SEQ, return message
+	MESSAGE:OLD-SEQ(sender never got ACK for old message, need to get them out of waiting state) - send ACK:OLD-SEQ
+	CORRUPT - send NACK:CURRENT-SEQ

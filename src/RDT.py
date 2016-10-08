@@ -127,10 +127,8 @@ class RDT_2_1:
         self.seq_number = 0
         self.byte_buffer = ''
 
-
     def disconnect(self):
         self.network.disconnect()
-
 
     def send(self, msg_S):
         # Send the packet
@@ -183,7 +181,6 @@ class RDT_2_1:
             print("UNEXPECTED STATE")
             exit(-1)
 
-
     def receive(self):
         # Try to get a response from the server
         (self.byte_buffer, good, packet) = construct_packet(self.network, self.byte_buffer)
@@ -208,35 +205,153 @@ class RDT_2_1:
             self.seq_number += 1
             return msg
 
+        # If the response is a MESSAGE for a future sequence
+        if seq > self.seq_number and type == RDT_2_1.PACKET_MESSAGE:
+            # Receiver got the message (we must missed a previous ACK), ask to resend and let calling function get ready
+            dispatch_packet(self.network, RDT_2_1._create_nack_packet(seq))
+            self.seq_number += 1
+            return
+
         # If the packet is a message for an old sequence
         if seq < self.seq_number and type == RDT_2_1.PACKET_MESSAGE:
             # Sender never got our ack, send it again to put them out of send state
             dispatch_packet(self.network, RDT_2_1._create_ack_packet(seq))
             return None
 
-        # ACK or NACK for old sequence and ACK, NACK, or MESSAGE for future sequence is impossible from this state
         print("UNEXPECTED STATE")
         exit(-1)
-
 
     @staticmethod
     def _get_packet_info(p):
         return (p.seq_num, int(p.msg_S[0:RDT_2_1.PACKET_TYPE_LENGTH]), p.msg_S[RDT_2_1.PACKET_TYPE_LENGTH:])
 
-
     @staticmethod
     def _create_message_packet(seq_num, msg_S):
         return Packet(seq_num, str(RDT_2_1.PACKET_MESSAGE).zfill(RDT_2_1.PACKET_TYPE_LENGTH) + msg_S)
-
 
     @staticmethod
     def _create_ack_packet(seq_num):
         return Packet(seq_num, str(RDT_2_1.PACKET_ACK).zfill(RDT_2_1.PACKET_TYPE_LENGTH))
 
-
     @staticmethod
     def _create_nack_packet(seq_num):
         return Packet(seq_num, str(RDT_2_1.PACKET_NACK).zfill(RDT_2_1.PACKET_TYPE_LENGTH))
+
+
+class RDT_3_0:
+    PACKET_TYPE_LENGTH = 1
+    PACKET_MESSAGE = 0
+    PACKET_ACK = 1
+
+    def __init__(self, role_S, server_S, port):
+        self.network = Network.NetworkLayer(role_S, server_S, port)
+        self.seq_number = 0
+        self.byte_buffer = ''
+
+    def disconnect(self):
+        self.network.disconnect()
+
+    def send(self, msg_S):
+        # Create packet to send
+        p = RDT_3_0._create_message_packet(self.seq_number, msg_S)
+
+        # Wait for an ACK
+        timeout = 0
+        while True:
+            # Decrement timeout counter
+            timeout -= 1
+            if timeout < 0:
+                # Resend the message
+                dispatch_packet(self.network, p)
+                timeout = 100
+
+            (self.byte_buffer, good, response) = construct_packet(self.network, self.byte_buffer)
+
+            # If we haven't received a packet
+            if good is None:
+                continue
+
+            # If the packet is corrupt
+            if not good:
+                # Resend message
+                dispatch_packet(self.network, p)
+                continue
+
+            # Packet is good, so get the info
+            (seq, type, msg) = RDT_3_0._get_packet_info(response)
+
+            # If the packet is an ACK for this sequence
+            if seq == self.seq_number and type == RDT_3_0.PACKET_ACK:
+                # T'sall good
+                return
+
+            # If the response is a MESSAGE for a future sequence
+            if seq > self.seq_number and type == RDT_3_0.PACKET_MESSAGE:
+                # Receiver got the message (we must have not gotten a previous ACK), ignore and let calling function get ready
+                self.seq_number += 1
+                return
+
+            # If the response is a MESSAGE for an old sequence
+            if seq < self.seq_number and type == RDT_3_0.PACKET_MESSAGE:
+                # We used to be a receiver, sender must have never gotten our ACK. Send message again
+                dispatch_packet(self.network, p)
+                continue
+
+            print("UNEXPECTED STATE")
+            exit(-1)
+
+    def receive(self):
+        # Try to get a response from the server
+        (self.byte_buffer, good, packet) = construct_packet(self.network, self.byte_buffer)
+
+        # If we haven't gotten a packet
+        if good is None:
+            return None
+
+        # If the packet is corrupt
+        if not good:
+            # Let them send it again
+            return None
+
+        # Packet is good, so extract info
+        (seq, type, msg) = RDT_3_0._get_packet_info(packet)
+
+        # If the packet is a message for the current sequence
+        if seq == self.seq_number and type == RDT_3_0.PACKET_MESSAGE:
+            # Send ack, return message to calling function
+            dispatch_packet(self.network, RDT_3_0._create_ack_packet(self.seq_number))
+            self.seq_number += 1
+            return msg
+
+        # If the response is a MESSAGE for a future sequence
+        if seq > self.seq_number and type == RDT_3_0.PACKET_MESSAGE:
+            # Receiver got the message (we must missed a previous ACK), ignore and let calling function get ready
+            self.seq_number += 1
+            return
+
+        # If the packet is a message for an old sequence
+        if seq < self.seq_number and type == RDT_3_0.PACKET_MESSAGE:
+            # Sender never got our ack, send it again to put them out of send state
+            dispatch_packet(self.network, RDT_3_0._create_ack_packet(seq))
+            return None
+
+        print("UNEXPECTED STATE")
+        exit(-1)
+
+
+    @staticmethod
+    def _get_packet_info(packet):
+        return (packet.seq_num, int(packet.msg_S[0:RDT_3_0.PACKET_TYPE_LENGTH]), packet.msg_S[RDT_3_0.PACKET_TYPE_LENGTH:])
+
+
+    @staticmethod
+    def _create_message_packet(seq_num, msg_S):
+        return Packet(seq_num, str(RDT_3_0.PACKET_MESSAGE).zfill(RDT_3_0.PACKET_TYPE_LENGTH) + msg_S)
+
+
+    @staticmethod
+    def _create_ack_packet(seq_num):
+        return Packet(seq_num, str(RDT_3_0.PACKET_ACK).zfill(RDT_3_0.PACKET_TYPE_LENGTH))
 
 
 if __name__ == '__main__':

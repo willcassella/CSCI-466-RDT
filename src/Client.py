@@ -18,7 +18,7 @@ if __name__ == '__main__':
     timeout = 200 #send the next message if not response
     time_of_last_data = time.time()
      
-    rdt = RDT.RDT_2_1('client', args.server, args.port)
+    rdt = RDT.RDT_3_0('client', args.server, args.port)
     for msg_S in msg_L:
         print('Converting: '+msg_S)
         rdt.send(msg_S)

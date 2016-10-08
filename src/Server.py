@@ -33,7 +33,7 @@ if __name__ == '__main__':
     timeout = 200 #close connection if no new data within 5 seconds
     time_of_last_data = time.time()
     
-    rdt = RDT.RDT_2_1('server', None, args.port)
+    rdt = RDT.RDT_3_0('server', None, args.port)
     while(True):
         #try to receiver message before timeout
         msg_S = rdt.receive()
